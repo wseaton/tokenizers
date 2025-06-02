@@ -18,6 +18,8 @@ pyo3 = { version = "0.24.2", features = ["abi3", "abi3-py39", "py-clone"] }
 numpy = "0.24"
 ndarray = "0.16"
 itertools = "0.12"
+tokio = { version = "1.44", features = ["full"] }
+pyo3-async-runtimes = { version = "0.24", features = ["attributes", "tokio-runtime"] }
 
 [dependencies.tokenizers]
 path = "../../tokenizers"
