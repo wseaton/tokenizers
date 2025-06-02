@@ -16,7 +16,7 @@ mod token;
 pub mod tokenizer;
 mod trainers;
 mod utils;
-mod vllm;
+pub mod vllm;
 
 use pyo3::prelude::*;
 use pyo3::wrap_pymodule;

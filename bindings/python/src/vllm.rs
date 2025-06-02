@@ -37,7 +37,7 @@ fn encode<'py>(py: Python<'py>, tokenizer: &PyTokenizer, text: &str) -> PyResult
 }
 
 #[pymodule]
-fn vllm(m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub fn vllm(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(encode, m)?)?;
     Ok(())
 }
