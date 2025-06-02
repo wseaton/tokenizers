@@ -468,7 +468,7 @@ type Tokenizer = TokenizerImpl<PyModel, PyNormalizer, PyPreTokenizer, PyPostProc
 #[derive(Clone, Serialize)]
 #[serde(transparent)]
 pub struct PyTokenizer {
-    pub(crate) tokenizer: Tokenizer,
+    pub tokenizer: Tokenizer,
 }
 
 impl PyTokenizer {

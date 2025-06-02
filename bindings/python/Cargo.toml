@@ -5,8 +5,8 @@ authors = ["Anthony MOI <m.anthony.moi@gmail.com>"]
 edition = "2021"
 
 [lib]
-name = "tokenizers"
-crate-type = ["cdylib"]
+name = "tokenizers_python"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 rayon = "1.10"

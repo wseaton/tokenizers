@@ -13,7 +13,7 @@ mod normalizers;
 mod pre_tokenizers;
 mod processors;
 mod token;
-mod tokenizer;
+pub mod tokenizer;
 mod trainers;
 mod utils;
 
