@@ -10,6 +10,7 @@ use std::{
 use crate::tokenizer::PyTokenizer;
 use numpy::ndarray::ArrayD;
 use numpy::IntoPyArray;
+use tokio::sync::Semaphore;
 
 #[pyfunction]
 fn encode<'py>(
@@ -47,10 +48,124 @@ fn encode<'py>(
     })
 }
 
+#[pyclass]
+#[derive(Clone)]
+pub struct TokenizationParams {
+    #[pyo3(get, set)]
+    pub add_special_tokens: bool,
+    #[pyo3(get, set)]
+    pub truncation: bool,
+    #[pyo3(get, set)]
+    pub max_length: Option<usize>,
+    #[pyo3(get, set)]
+    pub do_lower_case: bool,
+}
+
+#[pymethods]
+impl TokenizationParams {
+    #[new]
+    #[pyo3(signature = (add_special_tokens=true, truncation=false, max_length=None, do_lower_case=false))]
+    fn new(
+        add_special_tokens: bool,
+        truncation: bool,
+        max_length: Option<usize>,
+        do_lower_case: bool,
+    ) -> Self {
+        Self {
+            add_special_tokens,
+            truncation,
+            max_length,
+            do_lower_case,
+        }
+    }
+}
+
+#[pyclass]
+pub struct TokenizationService {
+    runtime: tokio::runtime::Runtime,
+    tokenizer: Arc<PyTokenizer>,
+    semaphore: Arc<Semaphore>,
+}
+
+#[pymethods]
+impl TokenizationService {
+    #[new]
+    #[pyo3(signature = (tokenizer, max_concurrent=4))]
+    fn new(tokenizer: &PyTokenizer, max_concurrent: usize) -> PyResult<Self> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(max_concurrent)
+            .build()
+            .map_err(|e| PyValueError::new_err(format!("Failed to create runtime: {}", e)))?;
+        
+        Ok(Self {
+            runtime,
+            tokenizer: Arc::new(tokenizer.clone()),
+            semaphore: Arc::new(Semaphore::new(max_concurrent)),
+        })
+    }
+
+    fn tokenize_buffer<'py>(
+        &self,
+        py: Python<'py>,
+        buffer: &TokenByteBuffer,
+        params: &TokenizationParams,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let tokenizer = Arc::clone(&self.tokenizer);
+        let buffer_core = Arc::clone(&buffer.core);
+        let params = params.clone();
+        let semaphore = Arc::clone(&self.semaphore);
+        
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let _permit = semaphore.acquire().await.unwrap();
+            
+            let results = tokio::task::spawn_blocking(move || {
+                let binding = buffer_core.read().unwrap();
+                let mut cow_strs = binding.as_cow_strs();
+                
+                // Apply lowercasing if needed
+                if params.do_lower_case {
+                    cow_strs = cow_strs.into_iter()
+                        .map(|cow| std::borrow::Cow::Owned(cow.to_lowercase()))
+                        .collect();
+                }
+                
+                match tokenizer.tokenizer.encode(cow_strs, params.add_special_tokens) {
+                    Ok(mut encoding) => {
+                        if params.truncation && params.max_length.is_some() {
+                            if let Some(max_len) = params.max_length {
+                                encoding.truncate(max_len, 0, tk::TruncationDirection::Right);
+                            }
+                        }
+                        
+                        let ids = encoding.get_ids();
+                        let array: ArrayD<i64> = Array::from_shape_vec(
+                            vec![ids.len()],
+                            ids.iter().map(|id| *id as i64).collect(),
+                        )
+                        .expect("Failed to create ndarray from ids");
+                        
+                        Ok(array)
+                    }
+                    Err(e) => Err(format!("Failed to encode text: {}", e)),
+                }
+            }).await;
+            
+            Python::with_gil(|py| match results {
+                Ok(Ok(array)) => Ok(array.into_pyarray(py).unbind()),
+                Ok(Err(e)) => Err(PyValueError::new_err(e)),
+                Err(e) => Err(PyValueError::new_err(format!("Task failed: {}", e))),
+            })
+        })
+    }
+
+}
+
 #[pymodule]
 pub fn vllm(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(encode, m)?)?;
     m.add_class::<TokenByteBuffer>()?;
+    m.add_class::<TokenizationParams>()?;
+    m.add_class::<TokenizationService>()?;
     Ok(())
 }
 
